@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import random
 import re
@@ -25,32 +26,34 @@ def choose_topic():
 
 
 def generate_script(topic, cfg):
-    prompt = f'''You are an expert viral YouTube Shorts producer for channel {cfg['channel_name']}.
+    prompt = f'''You are a top-tier viral YouTube Shorts creator producing rapid-fire, high-dopamine, high-retention content for channel {cfg['channel_name']}.
 Niche: {cfg['niche']}.
 Topic: {topic}.
-Language: Natural conversational Hinglish written in Devanagari Hindi, mixing everyday English terms naturally.
-Target Audience: Indian youth aged 16-30.
-Total spoken duration: ~{cfg['duration_target_seconds']} seconds (total ~90-110 spoken words).
+Language: Punchy conversational Hinglish in Devanagari Hindi with natural English words.
+Style: Aggressive, energetic, straight-to-the-point, high retention (Alex Hormozi / Ali Abdaal pace).
+Target total duration: 30 to 38 seconds (~95-120 spoken words total).
 
-CRITICAL REQUIREMENT:
-Create 4 to 5 chronological SCENES where each scene has a specific spoken line and a tightly matching VISUAL search query.
+CRITICAL FORMAT REQUIREMENT:
+Write 6 to 8 SHORT, FIRING SCENES. Each scene is ONLY 1 short punchy sentence (10-18 words, spoken in 2.5-4 seconds). Visuals change on EVERY scene!
 
-Scene Structure:
-Scene 1 (Hook/Problem): Stop scrolling, relatable painful habit or question.
-Scene 2 (Agitation/Why): The hidden psychological trap or cost.
-Scene 3 (Rule 1 / Action): First concrete practical shift.
-Scene 4 (Rule 2 / Routine): Second practical shift.
-Scene 5 (Outro / Takeaway): High-energy mindset challenge.
+Scene Arc (6-8 beats):
+1. Shock Hook (Stop scrolling instantly with high curiosity/pain)
+2. The Brutal Truth (Why 99% fail or ruin their morning/focus)
+3. The Hidden Friction (What it actually costs you)
+4. Rule 1 (Immediate practical action)
+5. Rule 2 (Second immediate action)
+6. Rule 3 (Third immediate action)
+7. Final Call (Aggressive closing challenge to comment/act)
 
 Return STRICT JSON ONLY with structure:
 {{
-  "title": "Catchy YouTube Title with English keyword & Hindi hook (under 65 chars)",
-  "description": "2-line SEO description in English with keywords",
+  "title": "High CTR Title with English keyword & emoji (under 60 chars)",
+  "description": "2-line engaging YouTube description with relevant hashtags",
   "scenes": [
     {{
-      "text": "spoken Hindi/Hinglish line for this scene",
-      "visual_query": "3-4 English keywords describing exact visual for Pexels search (e.g. 'alarm ringing bed phone', 'stressed man glowing laptop screen', 'writing journal morning desk', 'drinking water glass table', 'confident man outdoor sunrise')",
-      "fallback_query": "2 backup keywords (e.g. 'scrolling phone', 'focus study', 'morning sunrise')"
+      "text": "1 punchy, fast-spoken Hindi/Hinglish line",
+      "visual_query": "3-4 precise English search terms for Pexels portrait footage (e.g. 'alarm clock morning wake up', 'glowing phone screen dark bed', 'frustrated person head hands laptop', 'throwing phone away drawer', 'drinking glass cold water', 'writing journal morning desk', 'confident person sunrise walking')",
+      "fallback_query": "2 general keywords (e.g. 'phone bed', 'study desk', 'morning walk')"
     }}
   ]
 }}
@@ -66,7 +69,7 @@ Return STRICT JSON ONLY with structure:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.8},
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.85},
         }
         for attempt in range(3):
             try:
@@ -82,11 +85,9 @@ Return STRICT JSON ONLY with structure:
                 text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                 data = json.loads(text)
                 
-                # Normalize scenes
-                if "scenes" not in data or not isinstance(data["scenes"], list) or len(data["scenes"]) < 3:
-                    raise ValueError("Script must contain at least 3 structured scenes")
+                if "scenes" not in data or not isinstance(data["scenes"], list) or len(data["scenes"]) < 4:
+                    raise ValueError("Script must contain at least 4 rapid scenes")
                 
-                # Assemble full narration
                 data["narration"] = " ".join([s["text"].strip() for s in data["scenes"] if s.get("text")])
                 return data
             except Exception as e:
@@ -98,7 +99,6 @@ Return STRICT JSON ONLY with structure:
 def download_single_video(query, target_path, fallback_query=""):
     headers = {"Authorization": os.environ["PEXELS_API_KEY"]}
     
-    # Progressive keyword candidates
     queries_to_try = [query]
     if fallback_query and fallback_query != query:
         queries_to_try.append(fallback_query)
@@ -169,7 +169,10 @@ def srt_time_to_sec(ts):
     return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
 
 
-def shift_srt(srt_text, offset_sec, start_idx=1):
+def format_snappy_srt(srt_text, offset_sec, start_idx=1, max_words_per_cue=4):
+    """
+    Shifts SRT timestamps and splits long sentences into fast-flashing 3-4 word cues.
+    """
     lines = srt_text.strip().splitlines()
     shifted_lines = []
     idx = start_idx
@@ -188,24 +191,38 @@ def shift_srt(srt_text, offset_sec, start_idx=1):
                 t1, t2 = [x.strip() for x in time_line.split("-->")]
                 s1 = srt_time_to_sec(t1) + offset_sec
                 s2 = srt_time_to_sec(t2) + offset_sec
-                shifted_lines.append(str(idx))
-                shifted_lines.append(f"{sec_to_srt_time(s1)} --> {sec_to_srt_time(s2)}")
-                idx += 1
                 i += 1
+                text_lines = []
                 while i < len(lines) and lines[i].strip() and not lines[i].strip().isdigit():
-                    shifted_lines.append(lines[i])
+                    text_lines.append(lines[i].strip())
                     i += 1
-                shifted_lines.append("")
+                
+                full_text = " ".join(text_lines)
+                words = full_text.split()
+                if len(words) > max_words_per_cue:
+                    num_chunks = math.ceil(len(words) / max_words_per_cue)
+                    chunk_dur = (s2 - s1) / num_chunks
+                    for c_idx in range(num_chunks):
+                        c_words = words[c_idx * max_words_per_cue : (c_idx + 1) * max_words_per_cue]
+                        cs1 = s1 + c_idx * chunk_dur
+                        cs2 = min(cs1 + chunk_dur, s2)
+                        shifted_lines.append(str(idx))
+                        shifted_lines.append(f"{sec_to_srt_time(cs1)} --> {sec_to_srt_time(cs2)}")
+                        shifted_lines.append(" ".join(c_words))
+                        shifted_lines.append("")
+                        idx += 1
+                else:
+                    shifted_lines.append(str(idx))
+                    shifted_lines.append(f"{sec_to_srt_time(s1)} --> {sec_to_srt_time(s2)}")
+                    shifted_lines.append(full_text)
+                    shifted_lines.append("")
+                    idx += 1
         else:
             i += 1
     return "\n".join(shifted_lines), idx
 
 
-def generate_scene_audio_and_subs(scenes, voice, rate="+12%"):
-    """
-    Generates TTS and synced subtitles for each scene, combining them into master audio & SRT.
-    Returns master audio path, master subs path, and a list of exact scene durations.
-    """
+def generate_scene_audio_and_subs(scenes, voice, rate="+28%"):
     audio_files = []
     scene_durations = []
     combined_srt_blocks = []
@@ -234,13 +251,12 @@ def generate_scene_audio_and_subs(scenes, voice, rate="+12%"):
         
         if scene_subs.exists():
             srt_content = scene_subs.read_text(encoding="utf-8")
-            shifted_block, next_idx = shift_srt(srt_content, current_time_offset, current_sub_idx)
+            shifted_block, next_idx = format_snappy_srt(srt_content, current_time_offset, current_sub_idx, max_words_per_cue=4)
             combined_srt_blocks.append(shifted_block)
             current_sub_idx = next_idx
 
         current_time_offset += dur
 
-    # Combine all scene audio files into master voice.mp3
     concat_audio_txt = OUT / "concat_audio.txt"
     concat_audio_txt.write_text("\n".join([f"file '{p.resolve()}'" for p in audio_files]), encoding="utf-8")
     
@@ -250,7 +266,6 @@ def generate_scene_audio_and_subs(scenes, voice, rate="+12%"):
         "-c", "copy", str(master_audio)
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Write master captions.srt
     master_subs = OUT / "captions.srt"
     master_subs.write_text("\n".join(combined_srt_blocks), encoding="utf-8")
 
@@ -258,10 +273,6 @@ def generate_scene_audio_and_subs(scenes, voice, rate="+12%"):
 
 
 def build_script_matching_video(scenes, scene_durations):
-    """
-    Downloads footage for each scene and trims each clip to EXACT scene audio duration.
-    Concatenates the exact-length clips into a 100% synchronized video track.
-    """
     scene_video_clips = []
     
     for idx, (scene, duration) in enumerate(zip(scenes, scene_durations)):
@@ -286,7 +297,6 @@ def build_script_matching_video(scenes, scene_durations):
         
         scene_video_clips.append(synced_clip)
 
-    # Concat all precision-synced scene video clips
     concat_video_txt = OUT / "concat_video.txt"
     concat_video_txt.write_text("\n".join([f"file '{p.resolve()}'" for p in scene_video_clips]), encoding="utf-8")
     
@@ -302,6 +312,10 @@ def build_script_matching_video(scenes, scene_durations):
 def choose_bgm():
     bgm_dir = ROOT / "data/bgm"
     if bgm_dir.exists():
+        # Prioritize driving energy tracks
+        energy_tracks = list(bgm_dir.glob("*energy*.mp3")) + list(bgm_dir.glob("*pulse*.mp3"))
+        if energy_tracks:
+            return random.choice(energy_tracks)
         tracks = list(bgm_dir.glob("*.mp3"))
         if tracks:
             return random.choice(tracks)
@@ -315,7 +329,7 @@ def escape_sub_path(path):
 def render_final_video(stock_video, voice_audio, subs, bgm, cfg):
     final = OUT / "short.mp4"
     duration = get_media_duration(voice_audio)
-    print(f"\nFinal Short Duration: {duration:.2f}s")
+    print(f"\nFinal Short Duration: {duration:.2f}s (Fast Paced)")
     
     font_size = cfg.get("subtitle_font_size", 28)
     color_map = {
@@ -335,7 +349,7 @@ def render_final_video(stock_video, voice_audio, subs, bgm, cfg):
     )
     
     vf = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,{subtitle_filter}"
-    bgm_volume = cfg.get("bgm_volume", 0.12)
+    bgm_volume = cfg.get("bgm_volume", 0.15)
 
     if bgm and Path(bgm).exists() and bgm_volume > 0:
         print(f"Mixing background music: {bgm.name} at volume {bgm_volume}")
@@ -380,24 +394,24 @@ def main():
     cfg = load_json(ROOT / "config.json")
     topic, history = choose_topic()
     print(f"\n==========================================")
-    print(f"Generating Script-Synced Short: '{topic}'")
+    print(f"Generating High-Retention Firing Short: '{topic}'")
     print(f"==========================================")
     
     script_data = generate_script(topic, cfg)
     scenes = script_data["scenes"]
-    print(f"Generated {len(scenes)} structured narrative scenes.")
+    print(f"Generated {len(scenes)} fast-firing scenes.")
     
-    # 1. Synthesize audio per scene to obtain exact sentence timings & merged subtitles
+    # 1. Synthesize fast audio per scene to get exact sentence timings & merged rapid captions
     voice_audio, master_subs, scene_durations = generate_scene_audio_and_subs(
         scenes,
         cfg.get("voice", "hi-IN-MadhurNeural"),
-        rate=cfg.get("speech_rate", "+12%")
+        rate=cfg.get("speech_rate", "+28%")
     )
     
     # 2. Build precision visual track matching each scene sentence
     synced_video = build_script_matching_video(scenes, scene_durations)
     
-    # 3. Choose background music & render final Short
+    # 3. Choose driving background beat & render final high-retention Short
     bgm = choose_bgm()
     final_short = render_final_video(synced_video, voice_audio, master_subs, bgm, cfg)
     
@@ -411,7 +425,7 @@ def main():
         "hashtags": cfg.get("hashtags", ["#shorts", "#selfimprovement"])
     }
     (OUT / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("\n✓ Script-matching Short published package ready!")
+    print("\n✓ High-retention fast-firing Short ready!")
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
 
 
