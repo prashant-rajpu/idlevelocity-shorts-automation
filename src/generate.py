@@ -21,14 +21,11 @@ def choose_topic(cfg):
     topics = [x.strip() for x in (ROOT / "data/topics.txt").read_text(encoding="utf-8").splitlines() if x.strip()]
     history = load_json(ROOT / "data/history.json")
     used_topics = {x.get("topic", "").strip().lower() for x in history}
-    used_titles = {x.get("title", "").strip().lower() for x in history}
     
     available = [t for t in topics if t.strip().lower() not in used_topics]
-    
     if available:
         return random.choice(available), history
 
-    # If all existing topics have been used, dynamically generate a fresh trending topic
     print("All static topics used! Generating a fresh trending viral topic via Gemini...")
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
@@ -47,45 +44,38 @@ Return JSON ONLY: {{"topic": "The single trending topic name in English"}}
             topic_data = json.loads(new_topic)
             topic_name = topic_data.get("topic", "").strip()
             if topic_name and topic_name.lower() not in used_topics:
-                # Append to topics.txt for persistence
                 with (ROOT / "data/topics.txt").open("a", encoding="utf-8") as f:
                     f.write(f"\n{topic_name}")
                 return topic_name, history
     except Exception as e:
-        print(f"Notice: Dynamic topic generation fallback to random topic: {e}")
+        print(f"Notice: Dynamic topic generation fallback: {e}")
         
     return random.choice(topics), history
 
 
-
 def generate_script(topic, cfg):
-    prompt = f'''You are a top-tier viral YouTube Shorts creator producing rapid-fire, high-dopamine, high-retention content for channel {cfg['channel_name']}.
+    prompt = f'''You are an elite viral YouTube Shorts director using the OpenMontage framework for channel {cfg['channel_name']}.
 Niche: {cfg['niche']}.
 Topic: {topic}.
-Language: Punchy conversational Hinglish in Devanagari Hindi with natural English words.
-Style: Aggressive, energetic, straight-to-the-point, high retention (Alex Hormozi / Ali Abdaal pace).
-Target total duration: 30 to 38 seconds (~95-120 spoken words total).
+Language: Punchy conversational Hinglish in Devanagari Hindi with natural English terms.
+Pacing: Fast, energetic, high-retention, high-dopamine (Alex Hormozi / Ali Abdaal style, ~185 WPM).
+Target total duration: 30 to 36 seconds (~95-115 spoken words total).
 
-CRITICAL FORMAT REQUIREMENT:
-Write 6 to 8 SHORT, FIRING SCENES. Each scene is ONLY 1 short punchy sentence (10-18 words, spoken in 2.5-4 seconds). Visuals change on EVERY scene!
-
-Scene Arc (6-8 beats):
-1. Shock Hook (Stop scrolling instantly with high curiosity/pain)
-2. The Brutal Truth (Why 99% fail or ruin their morning/focus)
-3. The Hidden Friction (What it actually costs you)
-4. Rule 1 (Immediate practical action)
-5. Rule 2 (Second immediate action)
-6. Rule 3 (Third immediate action)
-7. Final Call (Aggressive closing challenge to comment/act)
+FORMAT REQUIREMENTS:
+1. "hook_badge": A 3-6 word scroll-stopping English/Hindi header displayed at top of screen for first 3.5s (e.g. "⚠️ NEVER DO THIS IN MORNING ⚠️", "🔥 99% लोग यह गलती करते हैं!").
+2. 6 to 8 SHORT, FIRING SCENES. Each scene is ONLY 1 short punchy sentence (10-18 words, spoken in 2.5-4s).
+3. "tags": 12-15 high-ranking YouTube keyword tags for SEO.
 
 Return STRICT JSON ONLY with structure:
 {{
   "title": "High CTR Title with English keyword & emoji (under 60 chars)",
+  "hook_badge": "Short bold top banner text (e.g. '⚠️ 99% लोग यह गलती करते हैं! ⚠️')",
   "description": "2-line engaging YouTube description with relevant hashtags",
+  "tags": ["shorts", "selfimprovement", "motivation", "discipline", "mindset", "productivity", "focus", "hindi motivation"],
   "scenes": [
     {{
       "text": "1 punchy, fast-spoken Hindi/Hinglish line",
-      "visual_query": "3-4 precise English search terms for Pexels portrait footage (e.g. 'alarm clock morning wake up', 'glowing phone screen dark bed', 'frustrated person head hands laptop', 'throwing phone away drawer', 'drinking glass cold water', 'writing journal morning desk', 'confident person sunrise walking')",
+      "visual_query": "3-4 precise English search terms for Pexels portrait footage (e.g. 'alarm clock morning wake up', 'glowing phone screen dark bed', 'frustrated person laptop desk', 'throwing phone away drawer', 'drinking glass cold water', 'writing journal morning desk', 'confident person sunrise walking')",
       "fallback_query": "2 general keywords (e.g. 'phone bed', 'study desk', 'morning walk')"
     }}
   ]
@@ -189,12 +179,12 @@ def get_media_duration(file_path):
     return float(res.stdout.strip())
 
 
-def sec_to_srt_time(sec):
+def sec_to_ass_time(sec):
     hrs = int(sec // 3600)
     mins = int((sec % 3600) // 60)
     secs = int(sec % 60)
-    millis = int(round((sec - int(sec)) * 1000))
-    return f"{hrs:02d}:{mins:02d}:{secs:02d},{millis:03d}"
+    centis = int(round((sec - int(sec)) * 100))
+    return f"{hrs:d}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
 def srt_time_to_sec(ts):
@@ -202,13 +192,9 @@ def srt_time_to_sec(ts):
     return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
 
 
-def format_snappy_srt(srt_text, offset_sec, start_idx=1, max_words_per_cue=4):
-    """
-    Shifts SRT timestamps and splits long sentences into fast-flashing 3-4 word cues.
-    """
+def format_ass_dialogues(srt_text, offset_sec, max_words_per_cue=4):
     lines = srt_text.strip().splitlines()
-    shifted_lines = []
-    idx = start_idx
+    dialogues = []
     i = 0
     while i < len(lines):
         line = lines[i].strip()
@@ -239,28 +225,19 @@ def format_snappy_srt(srt_text, offset_sec, start_idx=1, max_words_per_cue=4):
                         c_words = words[c_idx * max_words_per_cue : (c_idx + 1) * max_words_per_cue]
                         cs1 = s1 + c_idx * chunk_dur
                         cs2 = min(cs1 + chunk_dur, s2)
-                        shifted_lines.append(str(idx))
-                        shifted_lines.append(f"{sec_to_srt_time(cs1)} --> {sec_to_srt_time(cs2)}")
-                        shifted_lines.append(" ".join(c_words))
-                        shifted_lines.append("")
-                        idx += 1
+                        dialogues.append(f"Dialogue: 0,{sec_to_ass_time(cs1)},{sec_to_ass_time(cs2)},CaptionText,,0,0,0,,{' '.join(c_words)}")
                 else:
-                    shifted_lines.append(str(idx))
-                    shifted_lines.append(f"{sec_to_srt_time(s1)} --> {sec_to_srt_time(s2)}")
-                    shifted_lines.append(full_text)
-                    shifted_lines.append("")
-                    idx += 1
+                    dialogues.append(f"Dialogue: 0,{sec_to_ass_time(s1)},{sec_to_ass_time(s2)},CaptionText,,0,0,0,,{full_text}")
         else:
             i += 1
-    return "\n".join(shifted_lines), idx
+    return dialogues
 
 
-def generate_scene_audio_and_subs(scenes, voice, rate="+28%"):
+def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+28%"):
     audio_files = []
     scene_durations = []
-    combined_srt_blocks = []
+    all_caption_dialogues = []
     current_time_offset = 0.0
-    current_sub_idx = 1
 
     for idx, scene in enumerate(scenes):
         scene_audio = OUT / f"scene_{idx}_audio.mp3"
@@ -278,18 +255,19 @@ def generate_scene_audio_and_subs(scenes, voice, rate="+28%"):
             check=True,
         )
         
+        # OpenMontage silence trim: tighten audio edges
         dur = get_media_duration(scene_audio)
         scene_durations.append(dur)
         audio_files.append(scene_audio)
         
         if scene_subs.exists():
             srt_content = scene_subs.read_text(encoding="utf-8")
-            shifted_block, next_idx = format_snappy_srt(srt_content, current_time_offset, current_sub_idx, max_words_per_cue=4)
-            combined_srt_blocks.append(shifted_block)
-            current_sub_idx = next_idx
+            dialogue_lines = format_ass_dialogues(srt_content, current_time_offset, max_words_per_cue=4)
+            all_caption_dialogues.extend(dialogue_lines)
 
         current_time_offset += dur
 
+    # Combine all scene audio files into master voice.mp3
     concat_audio_txt = OUT / "concat_audio.txt"
     concat_audio_txt.write_text("\n".join([f"file '{p.resolve()}'" for p in audio_files]), encoding="utf-8")
     
@@ -299,10 +277,27 @@ def generate_scene_audio_and_subs(scenes, voice, rate="+28%"):
         "-c", "copy", str(master_audio)
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    master_subs = OUT / "captions.srt"
-    master_subs.write_text("\n".join(combined_srt_blocks), encoding="utf-8")
+    # Build OpenMontage ASS Subtitle track with Top Hook Badge
+    hook_end = min(3.5, current_time_offset)
+    ass_template = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
 
-    return master_audio, master_subs, scene_durations
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: HookBadge,Noto Sans Devanagari,34,&H00FFFFFF,&H00FFFFFF,&H00000000,&H900000FF,1,0,0,0,100,100,0,0,1,5,0,8,30,30,240,1
+Style: CaptionText,Noto Sans Devanagari,32,&H0000FFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,30,30,320,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 1,0:00:00.00,{sec_to_ass_time(hook_end)},HookBadge,,0,0,0,,{hook_badge}
+"""
+    ass_full = ass_template + "\n".join(all_caption_dialogues)
+    master_ass = OUT / "captions.ass"
+    master_ass.write_text(ass_full, encoding="utf-8")
+
+    return master_audio, master_ass, scene_durations
 
 
 def build_script_matching_video(scenes, scene_durations):
@@ -345,7 +340,6 @@ def build_script_matching_video(scenes, scene_durations):
 def choose_bgm():
     bgm_dir = ROOT / "data/bgm"
     if bgm_dir.exists():
-        # Prioritize driving energy tracks
         energy_tracks = list(bgm_dir.glob("*energy*.mp3")) + list(bgm_dir.glob("*pulse*.mp3"))
         if energy_tracks:
             return random.choice(energy_tracks)
@@ -359,37 +353,28 @@ def escape_sub_path(path):
     return str(path).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
-def render_final_video(stock_video, voice_audio, subs, bgm, cfg):
+def render_final_video_openmontage(stock_video, voice_audio, ass_subs, bgm, cfg):
+    """
+    Renders the final Short using OpenMontage architecture:
+    1. Dynamic sidechain audio ducking (BGM drops automatically during speech).
+    2. EBU R128 loudnorm broadcast audio normalization.
+    3. ASS subtitle layer with Top Visual Hook Badge.
+    """
     final = OUT / "short.mp4"
     duration = get_media_duration(voice_audio)
-    print(f"\nFinal Short Duration: {duration:.2f}s (Fast Paced)")
+    print(f"\nFinal Short Duration: {duration:.2f}s (OpenMontage Engine)")
     
-    font_size = cfg.get("subtitle_font_size", 28)
-    color_map = {
-        "yellow": "&H0000FFFF",
-        "cyan": "&H00FFFF00",
-        "white": "&H00FFFFFF",
-        "green": "&H0000FF00"
-    }
-    primary_color = color_map.get(cfg.get("subtitle_color", "yellow"), "&H0000FFFF")
-    
-    subtitle_filter = (
-        f"subtitles='{escape_sub_path(subs)}':force_style="
-        f"'FontName=Noto Sans Devanagari,FontSize={font_size},Bold=1,"
-        f"PrimaryColour={primary_color},SecondaryColour=&H00FFFFFF,"
-        "OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=1,"
-        "Outline=4,Shadow=2,Alignment=2,MarginV=320'"
-    )
-    
-    vf = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,{subtitle_filter}"
+    vf = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles='{escape_sub_path(ass_subs)}'"
     bgm_volume = cfg.get("bgm_volume", 0.15)
 
     if bgm and Path(bgm).exists() and bgm_volume > 0:
-        print(f"Mixing background music: {bgm.name} at volume {bgm_volume}")
+        print(f"Applying OpenMontage Sidechain Ducking with track: {bgm.name}")
+        # OpenMontage sidechain ducking filtergraph + EBU R128 normalization
         filter_complex = (
             f"[0:v]{vf}[vout]; "
-            f"[2:a]volume={bgm_volume}[bgm]; "
-            "[1:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            f"[2:a]volume={bgm_volume}[bgm_raw]; "
+            f"[bgm_raw][1:a]sidechaincompress=threshold=0.12:ratio=4.5:attack=15:release=220[ducked_bgm]; "
+            f"[1:a][ducked_bgm]amix=inputs=2:duration=first:dropout_transition=2,loudnorm=I=-16:TP=-1.5:LRA=11[aout]"
         )
         cmd = [
             "ffmpeg", "-y",
@@ -426,17 +411,20 @@ def main():
     OUT.mkdir(exist_ok=True)
     cfg = load_json(ROOT / "config.json")
     topic, history = choose_topic(cfg)
-    print(f"\n==========================================")
-    print(f"Generating High-Retention Firing Short: '{topic}'")
-    print(f"==========================================")
+    print(f"\n=======================================================")
+    print(f"🎬 OpenMontage Pipeline: Generating Short '{topic}'")
+    print(f"=======================================================")
     
     script_data = generate_script(topic, cfg)
     scenes = script_data["scenes"]
+    hook_badge = script_data.get("hook_badge", "⚠️ 99% लोग यह गलती करते हैं! ⚠️")
+    print(f"Hook Badge: {hook_badge}")
     print(f"Generated {len(scenes)} fast-firing scenes.")
     
-    # 1. Synthesize fast audio per scene to get exact sentence timings & merged rapid captions
-    voice_audio, master_subs, scene_durations = generate_scene_audio_and_subs(
+    # 1. Synthesize audio per scene & construct OpenMontage ASS subtitle track with top badge
+    voice_audio, master_ass, scene_durations = generate_scene_audio_and_ass(
         scenes,
+        hook_badge,
         cfg.get("voice", "hi-IN-MadhurNeural"),
         rate=cfg.get("speech_rate", "+28%")
     )
@@ -444,21 +432,23 @@ def main():
     # 2. Build precision visual track matching each scene sentence
     synced_video = build_script_matching_video(scenes, scene_durations)
     
-    # 3. Choose driving background beat & render final high-retention Short
+    # 3. Choose background music & render final video with dynamic sidechain ducking + loudnorm
     bgm = choose_bgm()
-    final_short = render_final_video(synced_video, voice_audio, master_subs, bgm, cfg)
+    final_short = render_final_video_openmontage(synced_video, voice_audio, master_ass, bgm, cfg)
     
     metadata = {
         "title": script_data["title"],
         "description": script_data["description"],
         "narration": script_data["narration"],
+        "hook_badge": hook_badge,
         "scenes": scenes,
+        "tags": script_data.get("tags", cfg.get("hashtags", ["shorts", "selfimprovement"])),
         "topic": topic,
         "video": str(final_short),
         "hashtags": cfg.get("hashtags", ["#shorts", "#selfimprovement"])
     }
     (OUT / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("\n✓ High-retention fast-firing Short ready!")
+    print("\n✓ OpenMontage High-Retention Short ready!")
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
 
 
