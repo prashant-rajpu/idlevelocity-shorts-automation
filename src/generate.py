@@ -203,8 +203,25 @@ def escape_sub_path(path):
     return str(path).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
+def get_media_duration(file_path):
+    res = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path)
+        ],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    return float(res.stdout.strip())
+
+
 def render_video(stock, audio, subs, bgm, cfg):
     final = OUT / "short.mp4"
+    duration = get_media_duration(audio)
+    print(f"Target video duration: {duration:.2f}s")
     
     # High-impact, bold, centered subtitle styling with clear margin
     font_size = cfg.get("subtitle_font_size", 28)
@@ -224,7 +241,7 @@ def render_video(stock, audio, subs, bgm, cfg):
         "Outline=4,Shadow=2,Alignment=2,MarginV=320'"
     )
     
-    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920," + subtitle_filter
+    vf = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,{subtitle_filter}"
     bgm_volume = cfg.get("bgm_volume", 0.12)
 
     if bgm and Path(bgm).exists() and bgm_volume > 0:
@@ -234,32 +251,36 @@ def render_video(stock, audio, subs, bgm, cfg):
             f"[2:a]volume={bgm_volume}[bgm]; "
             "[1:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
         )
-        subprocess.run([
+        cmd = [
             "ffmpeg", "-y",
             "-stream_loop", "-1", "-i", str(stock),
             "-i", str(audio),
             "-stream_loop", "-1", "-i", str(bgm),
             "-filter_complex", filter_complex,
             "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "21",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
             "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart",
+            "-t", f"{duration:.2f}",
+            "-movflags", "+faststart",
             str(final)
-        ], check=True)
+        ]
     else:
-        subprocess.run([
+        cmd = [
             "ffmpeg", "-y",
             "-stream_loop", "-1", "-i", str(stock),
             "-i", str(audio),
             "-vf", vf,
             "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "21",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
             "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart",
+            "-t", f"{duration:.2f}",
+            "-movflags", "+faststart",
             str(final)
-        ], check=True)
+        ]
 
+    subprocess.run(cmd, check=True)
     return final
+
 
 
 def main():
