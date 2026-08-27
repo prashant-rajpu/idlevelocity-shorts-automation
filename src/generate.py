@@ -34,9 +34,8 @@ No fake statistics, medical claims, quotes attributed to people, promises, copie
 Return strict JSON only with keys: title, narration, description, stock_query. Title <= 70 characters. stock_query must be 2-4 English words suitable for vertical stock footage.'''
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    models = [primary_model, "gemini-2.0-flash", "gemini-1.5-flash"]
-    # deduplicate while preserving order
-    models_to_try = list(dict.fromkeys(models))
+    models_to_try = [primary_model, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+    models_to_try = list(dict.fromkeys(models_to_try))
     
     last_err = None
     for model in models_to_try:
@@ -44,7 +43,9 @@ Return strict JSON only with keys: title, narration, description, stock_query. T
         body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0.9}}
         try:
             res = requests.post(url, json=body, timeout=90)
-            res.raise_for_status()
+            if not res.ok:
+                print(f"API Error ({model}) [{res.status_code}]: {res.text}")
+                res.raise_for_status()
             text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
             data = json.loads(text)
             if not 60 <= len(data["narration"].split()) <= 150:
@@ -52,9 +53,9 @@ Return strict JSON only with keys: title, narration, description, stock_query. T
             return data
         except Exception as e:
             last_err = e
-            print(f"Warning: model {model} failed ({e}), trying next fallback...")
             continue
     raise last_err or RuntimeError("Failed to generate script with available Gemini models")
+
 
 
 
