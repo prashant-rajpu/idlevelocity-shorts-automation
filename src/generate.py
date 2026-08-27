@@ -17,12 +17,45 @@ def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def choose_topic():
+def choose_topic(cfg):
     topics = [x.strip() for x in (ROOT / "data/topics.txt").read_text(encoding="utf-8").splitlines() if x.strip()]
     history = load_json(ROOT / "data/history.json")
-    used = {x.get("topic") for x in history[-60:]}
-    available = [x for x in topics if x not in used] or topics
-    return random.choice(available), history
+    used_topics = {x.get("topic", "").strip().lower() for x in history}
+    used_titles = {x.get("title", "").strip().lower() for x in history}
+    
+    available = [t for t in topics if t.strip().lower() not in used_topics]
+    
+    if available:
+        return random.choice(available), history
+
+    # If all existing topics have been used, dynamically generate a fresh trending topic
+    print("All static topics used! Generating a fresh trending viral topic via Gemini...")
+    key = os.environ["GEMINI_API_KEY"]
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent?key={key}"
+    
+    prompt = f'''Suggest 1 NEW, highly viral, trending YouTube Shorts topic for niche: {cfg['niche']}.
+It must NOT be any of these previously used topics:
+{json.dumps(list(used_topics)[-25:], ensure_ascii=False)}
+
+Return JSON ONLY: {{"topic": "The single trending topic name in English"}}
+'''
+    try:
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json"}}, timeout=30)
+        if res.ok:
+            new_topic = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            topic_data = json.loads(new_topic)
+            topic_name = topic_data.get("topic", "").strip()
+            if topic_name and topic_name.lower() not in used_topics:
+                # Append to topics.txt for persistence
+                with (ROOT / "data/topics.txt").open("a", encoding="utf-8") as f:
+                    f.write(f"\n{topic_name}")
+                return topic_name, history
+    except Exception as e:
+        print(f"Notice: Dynamic topic generation fallback to random topic: {e}")
+        
+    return random.choice(topics), history
+
 
 
 def generate_script(topic, cfg):
@@ -392,7 +425,7 @@ def render_final_video(stock_video, voice_audio, subs, bgm, cfg):
 def main():
     OUT.mkdir(exist_ok=True)
     cfg = load_json(ROOT / "config.json")
-    topic, history = choose_topic()
+    topic, history = choose_topic(cfg)
     print(f"\n==========================================")
     print(f"Generating High-Retention Firing Short: '{topic}'")
     print(f"==========================================")
