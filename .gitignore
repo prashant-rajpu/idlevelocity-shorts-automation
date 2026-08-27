@@ -1,5 +1,5 @@
 output/
-client_secret.json
-.env
+client_secret*.json
+.env*
 __pycache__/
-
+.venv/
