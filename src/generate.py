@@ -85,33 +85,46 @@ Guidelines:
 
 def download_single_video(query, target_path):
     headers = {"Authorization": os.environ["PEXELS_API_KEY"]}
-    res = requests.get(
-        "https://api.pexels.com/videos/search",
-        headers=headers,
-        params={"query": query, "orientation": "portrait", "per_page": 10},
-        timeout=60,
-    )
-    res.raise_for_status()
-    videos = res.json().get("videos", [])
-    if not videos:
-        raise RuntimeError(f"No Pexels footage for: {query}")
+    
+    queries_to_try = [query]
+    words = query.split()
+    if len(words) > 2:
+        queries_to_try.append(" ".join(words[:2]))
+    queries_to_try.extend(["deep focus study", "disciplined routine", "sunrise motivation", "productive work"])
+    
+    for q in queries_to_try:
+        try:
+            res = requests.get(
+                "https://api.pexels.com/videos/search",
+                headers=headers,
+                params={"query": q, "orientation": "portrait", "per_page": 10},
+                timeout=60,
+            )
+            if not res.ok:
+                continue
+            videos = res.json().get("videos", [])
+            if not videos:
+                continue
 
-    candidates = []
-    for video in videos:
-        for f in video.get("video_files", []):
-            if f.get("file_type") == "video/mp4" and f.get("height", 0) >= f.get("width", 0):
-                candidates.append((abs(f.get("height", 0) - 1920), f["link"]))
+            candidates = []
+            for video in videos:
+                for f in video.get("video_files", []):
+                    if f.get("file_type") == "video/mp4" and f.get("height", 0) >= f.get("width", 0):
+                        candidates.append((abs(f.get("height", 0) - 1920), f["link"]))
 
-    if not candidates:
-        raise RuntimeError(f"No portrait MP4 result for: {query}")
+            if candidates:
+                url = sorted(candidates)[0][1]
+                with requests.get(url, stream=True, timeout=180) as r:
+                    r.raise_for_status()
+                    with target_path.open("wb") as fh:
+                        for chunk in r.iter_content(1024 * 1024):
+                            fh.write(chunk)
+                return target_path
+        except Exception:
+            continue
 
-    url = sorted(candidates)[0][1]
-    with requests.get(url, stream=True, timeout=180) as r:
-        r.raise_for_status()
-        with target_path.open("wb") as fh:
-            for chunk in r.iter_content(1024 * 1024):
-                fh.write(chunk)
-    return target_path
+    raise RuntimeError(f"No portrait MP4 result for: {query}")
+
 
 
 def download_multi_stock(queries, cfg):
