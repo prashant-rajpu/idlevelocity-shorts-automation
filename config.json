@@ -3,9 +3,14 @@
   "language": "Hinglish",
   "niche": "self-improvement, discipline, confidence, productivity and mindset",
   "voice": "hi-IN-MadhurNeural",
+  "speech_rate": "+12%",
+  "bgm_volume": 0.12,
+  "subtitle_font_size": 28,
+  "subtitle_color": "yellow",
+  "multi_clip": true,
+  "clip_count": 3,
   "privacy_status": "public",
   "category_id": "27",
   "duration_target_seconds": 42,
   "hashtags": ["#shorts", "#selfimprovement", "#motivation", "#hindimotivation", "#idlevelocity"]
 }
-
