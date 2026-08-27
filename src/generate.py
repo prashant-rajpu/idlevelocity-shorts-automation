@@ -33,8 +33,9 @@ Structure: 1-line pattern-interrupt hook, relatable problem, 2-3 actionable line
 No fake statistics, medical claims, quotes attributed to people, promises, copied catchphrases, emojis or scene directions.
 Return strict JSON only with keys: title, narration, description, stock_query. Title <= 70 characters. stock_query must be 2-4 English words suitable for vertical stock footage.'''
     key = os.environ["GEMINI_API_KEY"]
-    primary_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    models_to_try = [primary_model, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    models_to_try = [primary_model, "gemini-3.6-flash", "gemini-3-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
+
     models_to_try = list(dict.fromkeys(models_to_try))
     
     last_err = None
