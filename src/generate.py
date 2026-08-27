@@ -49,9 +49,10 @@ Guidelines:
 
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    models_to_try = [primary_model, "gemini-3.6-flash", "gemini-3-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
+    models_to_try = [primary_model, "gemini-3.6-flash", "gemini-3.1-pro-preview", "gemini-3.1-flash"]
     models_to_try = list(dict.fromkeys(models_to_try))
 
+    import time
     last_err = None
     for model in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
@@ -59,20 +60,27 @@ Guidelines:
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.85},
         }
-        try:
-            res = requests.post(url, json=body, timeout=90)
-            if not res.ok:
-                print(f"API Error ({model}) [{res.status_code}]: {res.text}")
-                res.raise_for_status()
-            text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            data = json.loads(text)
-            if not 60 <= len(data["narration"].split()) <= 160:
-                raise ValueError("Generated narration failed length check")
-            return data
-        except Exception as e:
-            last_err = e
-            continue
+        for attempt in range(3):
+            try:
+                res = requests.post(url, json=body, timeout=90)
+                if res.status_code in (429, 503):
+                    wait_time = 2 * (attempt + 1)
+                    print(f"Model {model} temporary spike ({res.status_code}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                if not res.ok:
+                    print(f"API Error ({model}) [{res.status_code}]: {res.text}")
+                    res.raise_for_status()
+                text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                data = json.loads(text)
+                if not 60 <= len(data["narration"].split()) <= 160:
+                    raise ValueError("Generated narration failed length check")
+                return data
+            except Exception as e:
+                last_err = e
+                break
     raise last_err or RuntimeError("Failed to generate script with available Gemini models")
+
 
 
 def download_single_video(query, target_path):
