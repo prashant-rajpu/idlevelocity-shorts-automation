@@ -26,12 +26,12 @@ def choose_topic(cfg):
     if available:
         return random.choice(available), history
 
-    print("All static topics used! Generating a fresh trending viral topic via Gemini...")
+    print("All static topics used! Generating a fresh trending viral topic for US/Global audience via Gemini...")
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent?key={key}"
     
-    prompt = f'''Suggest 1 NEW, highly viral, trending YouTube Shorts topic for niche: {cfg['niche']}.
+    prompt = f'''Suggest 1 NEW, highly viral, trending YouTube Shorts topic for US/Global audience in niche: {cfg['niche']}.
 It must NOT be any of these previously used topics:
 {json.dumps(list(used_topics)[-25:], ensure_ascii=False)}
 
@@ -54,28 +54,28 @@ Return JSON ONLY: {{"topic": "The single trending topic name in English"}}
 
 
 def generate_script(topic, cfg):
-    prompt = f'''You are an elite viral YouTube Shorts director using the OpenMontage framework for channel {cfg['channel_name']}.
+    prompt = f'''You are a world-class viral YouTube Shorts director creating high-retention, high-CPM content for a US & Global audience on channel {cfg['channel_name']}.
 Niche: {cfg['niche']}.
 Topic: {topic}.
-Language: Punchy conversational Hinglish in Devanagari Hindi with natural English terms.
-Pacing: Fast, energetic, high-retention, high-dopamine (Alex Hormozi / Ali Abdaal style, ~185 WPM).
-Target total duration: 30 to 36 seconds (~95-115 spoken words total).
+Language: Clean, punchy, conversational American English (Alex Hormozi / Andrew Huberman style).
+Style: Authoritative, energetic, zero fluff, scientific & psychological framing.
+Target total duration: 30 to 35 seconds (~85-110 spoken words total).
 
 FORMAT REQUIREMENTS:
-1. "hook_badge": A 3-6 word scroll-stopping English/Hindi header displayed at top of screen for first 3.5s (e.g. "⚠️ NEVER DO THIS IN MORNING ⚠️", "🔥 99% लोग यह गलती करते हैं!").
-2. 6 to 8 SHORT, FIRING SCENES. Each scene is ONLY 1 short punchy sentence (10-18 words, spoken in 2.5-4s).
-3. "tags": 12-15 high-ranking YouTube keyword tags for SEO.
+1. "hook_badge": A 3-6 word scroll-stopping English ALL-CAPS header displayed at top of screen for first 3.5s (e.g. "⚠️ NEVER DO THIS AT 6 AM ⚠️", "⚡ THE 5-SECOND FOCUS RULE", "🧠 REWIRE YOUR BRAIN TODAY").
+2. 6 to 8 SHORT, FIRING SCENES. Each scene is ONLY 1 short punchy sentence (10-16 words, spoken in 2.5-4s).
+3. "tags": 12-15 high-ranking YouTube keyword tags for US search & recommendations.
 
 Return STRICT JSON ONLY with structure:
 {{
-  "title": "High CTR Title with English keyword & emoji (under 60 chars)",
-  "hook_badge": "Short bold top banner text (e.g. '⚠️ 99% लोग यह गलती करते हैं! ⚠️')",
-  "description": "2-line engaging YouTube description with relevant hashtags",
-  "tags": ["shorts", "selfimprovement", "motivation", "discipline", "mindset", "productivity", "focus", "hindi motivation"],
+  "title": "High CTR English Title with emoji (under 55 chars, e.g. 'Stop Ruining Your Mornings 🧠⚡ #Shorts')",
+  "hook_badge": "Short bold top banner text in ALL CAPS",
+  "description": "2-line engaging YouTube description with top hashtags",
+  "tags": ["shorts", "selfimprovement", "productivity", "discipline", "mindset", "focus", "habits", "success", "psychology", "dopamine detox"],
   "scenes": [
     {{
-      "text": "1 punchy, fast-spoken Hindi/Hinglish line",
-      "visual_query": "3-4 precise English search terms for Pexels portrait footage (e.g. 'alarm clock morning wake up', 'glowing phone screen dark bed', 'frustrated person laptop desk', 'throwing phone away drawer', 'drinking glass cold water', 'writing journal morning desk', 'confident person sunrise walking')",
+      "text": "1 punchy, fast-spoken English line",
+      "visual_query": "3-4 precise English search terms for Pexels portrait footage (e.g. 'alarm clock morning wake up', 'glowing smartphone dark bedroom', 'frustrated person laptop desk', 'putting phone away drawer', 'drinking glass cold water', 'writing journal morning desk', 'confident man sunrise walking')",
       "fallback_query": "2 general keywords (e.g. 'phone bed', 'study desk', 'morning walk')"
     }}
   ]
@@ -216,7 +216,7 @@ def format_ass_dialogues(srt_text, offset_sec, max_words_per_cue=4):
                     text_lines.append(lines[i].strip())
                     i += 1
                 
-                full_text = " ".join(text_lines)
+                full_text = " ".join(text_lines).upper()
                 words = full_text.split()
                 if len(words) > max_words_per_cue:
                     num_chunks = math.ceil(len(words) / max_words_per_cue)
@@ -233,7 +233,7 @@ def format_ass_dialogues(srt_text, offset_sec, max_words_per_cue=4):
     return dialogues
 
 
-def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+28%"):
+def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+18%"):
     audio_files = []
     scene_durations = []
     all_caption_dialogues = []
@@ -255,7 +255,6 @@ def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+28%"):
             check=True,
         )
         
-        # OpenMontage silence trim: tighten audio edges
         dur = get_media_duration(scene_audio)
         scene_durations.append(dur)
         audio_files.append(scene_audio)
@@ -267,7 +266,6 @@ def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+28%"):
 
         current_time_offset += dur
 
-    # Combine all scene audio files into master voice.mp3
     concat_audio_txt = OUT / "concat_audio.txt"
     concat_audio_txt.write_text("\n".join([f"file '{p.resolve()}'" for p in audio_files]), encoding="utf-8")
     
@@ -277,7 +275,6 @@ def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+28%"):
         "-c", "copy", str(master_audio)
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Build OpenMontage ASS Subtitle track with Top Hook Badge
     hook_end = min(3.5, current_time_offset)
     ass_template = f"""[Script Info]
 ScriptType: v4.00+
@@ -286,8 +283,8 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: HookBadge,Noto Sans Devanagari,34,&H00FFFFFF,&H00FFFFFF,&H00000000,&H900000FF,1,0,0,0,100,100,0,0,1,5,0,8,30,30,240,1
-Style: CaptionText,Noto Sans Devanagari,32,&H0000FFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,30,30,320,1
+Style: HookBadge,Noto Sans,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H900000FF,1,0,0,0,100,100,0,0,1,5,0,8,30,30,240,1
+Style: CaptionText,Noto Sans,34,&H0000FFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,30,30,320,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -313,7 +310,6 @@ def build_script_matching_video(scenes, scene_durations):
         
         download_single_video(query, raw_clip, fallback)
         
-        # Scale, crop to 1080x1920, and trim to EXACT scene duration
         subprocess.run([
             "ffmpeg", "-y",
             "-stream_loop", "-1", "-i", str(raw_clip),
@@ -354,22 +350,15 @@ def escape_sub_path(path):
 
 
 def render_final_video_openmontage(stock_video, voice_audio, ass_subs, bgm, cfg):
-    """
-    Renders the final Short using OpenMontage architecture:
-    1. Dynamic sidechain audio ducking (BGM drops automatically during speech).
-    2. EBU R128 loudnorm broadcast audio normalization.
-    3. ASS subtitle layer with Top Visual Hook Badge.
-    """
     final = OUT / "short.mp4"
     duration = get_media_duration(voice_audio)
-    print(f"\nFinal Short Duration: {duration:.2f}s (OpenMontage Engine)")
+    print(f"\nFinal Short Duration: {duration:.2f}s (Global English)")
     
     vf = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles='{escape_sub_path(ass_subs)}'"
-    bgm_volume = cfg.get("bgm_volume", 0.15)
+    bgm_volume = cfg.get("bgm_volume", 0.14)
 
     if bgm and Path(bgm).exists() and bgm_volume > 0:
         print(f"Applying OpenMontage Sidechain Ducking with track: {bgm.name}")
-        # OpenMontage sidechain ducking filtergraph + EBU R128 normalization
         filter_complex = (
             f"[0:v]{vf}[vout]; "
             f"[2:a]volume={bgm_volume}[bgm_raw]; "
@@ -412,21 +401,24 @@ def main():
     cfg = load_json(ROOT / "config.json")
     topic, history = choose_topic(cfg)
     print(f"\n=======================================================")
-    print(f"🎬 OpenMontage Pipeline: Generating Short '{topic}'")
+    print(f"🎬 US/Global Pipeline: Generating Short '{topic}'")
     print(f"=======================================================")
     
     script_data = generate_script(topic, cfg)
     scenes = script_data["scenes"]
-    hook_badge = script_data.get("hook_badge", "⚠️ 99% लोग यह गलती करते हैं! ⚠️")
+    hook_badge = script_data.get("hook_badge", "⚡ 99% OF PEOPLE DO THIS WRONG")
     print(f"Hook Badge: {hook_badge}")
     print(f"Generated {len(scenes)} fast-firing scenes.")
     
-    # 1. Synthesize audio per scene & construct OpenMontage ASS subtitle track with top badge
+    voice = cfg.get("voice", "en-US-ChristopherNeural")
+    rate = cfg.get("speech_rate", "+18%")
+    
+    # 1. Synthesize audio per scene & build ASS subtitles with top hook badge
     voice_audio, master_ass, scene_durations = generate_scene_audio_and_ass(
         scenes,
         hook_badge,
-        cfg.get("voice", "hi-IN-MadhurNeural"),
-        rate=cfg.get("speech_rate", "+28%")
+        voice=voice,
+        rate=rate
     )
     
     # 2. Build precision visual track matching each scene sentence
@@ -445,10 +437,10 @@ def main():
         "tags": script_data.get("tags", cfg.get("hashtags", ["shorts", "selfimprovement"])),
         "topic": topic,
         "video": str(final_short),
-        "hashtags": cfg.get("hashtags", ["#shorts", "#selfimprovement"])
+        "hashtags": cfg.get("hashtags", ["#shorts", "#selfimprovement", "#discipline", "#productivity", "#mindset"])
     }
     (OUT / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("\n✓ OpenMontage High-Retention Short ready!")
+    print("\n✓ US/Global High-Retention Short ready!")
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
 
 

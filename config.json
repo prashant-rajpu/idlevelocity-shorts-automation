@@ -1,16 +1,17 @@
 {
   "channel_name": "Idlevelocity",
-  "language": "Hinglish",
-  "niche": "self-improvement, discipline, confidence, productivity and mindset",
-  "voice": "hi-IN-MadhurNeural",
-  "speech_rate": "+28%",
-  "bgm_volume": 0.15,
+  "language": "English",
+  "target_region": "US / Global Tier-1",
+  "niche": "high-performance habits, self-discipline, dopamine detox, productivity and mindset psychology",
+  "voice": "en-US-ChristopherNeural",
+  "speech_rate": "+18%",
+  "bgm_volume": 0.14,
   "subtitle_font_size": 28,
   "subtitle_color": "yellow",
   "multi_clip": true,
   "clip_count": 6,
   "privacy_status": "public",
   "category_id": "27",
-  "duration_target_seconds": 35,
-  "hashtags": ["#shorts", "#selfimprovement", "#motivation", "#hindimotivation", "#idlevelocity"]
+  "duration_target_seconds": 32,
+  "hashtags": ["#shorts", "#selfimprovement", "#discipline", "#productivity", "#mindset", "#habits", "#success"]
 }

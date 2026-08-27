@@ -22,15 +22,16 @@ def main():
         scopes=["https://www.googleapis.com/auth/youtube.upload"],
     )
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
-    description = meta["description"].strip() + "\n\n" + " ".join(meta.get("hashtags", ["#shorts", "#selfimprovement"]))
-    tags = meta.get("tags", ["shorts", "selfimprovement", "motivation", "discipline", "idlevelocity"])
+    description = meta["description"].strip() + "\n\n" + " ".join(meta.get("hashtags", ["#shorts", "#selfimprovement", "#productivity"]))
+    tags = meta.get("tags", ["shorts", "selfimprovement", "motivation", "discipline", "productivity", "mindset", "success", "idlevelocity"])
 
     snippet = {
         "title": meta["title"],
         "description": description,
         "tags": tags,
         "categoryId": cfg.get("category_id", "27"),
-        "defaultLanguage": "hi",
+        "defaultLanguage": "en",
+        "defaultAudioLanguage": "en",
     }
     
     status = {
@@ -57,7 +58,7 @@ def main():
         "title": meta["title"]
     })
     history_path.write_text(json.dumps(history[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Uploaded with OpenMontage SEO tags: https://youtube.com/shorts/{response['id']}")
+    print(f"Uploaded US/Global English Short: https://youtube.com/shorts/{response['id']}")
 
 
 if __name__ == "__main__":
