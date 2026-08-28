@@ -30,7 +30,7 @@ def choose_topic(cfg):
 
     print("All static topics used! Generating a fresh trending viral topic for US/Global audience via Gemini...")
     key = os.environ["GEMINI_API_KEY"]
-    primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent?key={key}"
 
     prompt = f'''Suggest 1 NEW, highly viral, trending YouTube Shorts topic for US/Global audience in niche: {cfg['niche']}.
@@ -86,8 +86,8 @@ Return STRICT JSON ONLY with structure:
 '''
 
     key = os.environ["GEMINI_API_KEY"]
-    primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    models_to_try = [primary_model, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    models_to_try = [primary_model, "gemini-3.6-flash", "gemini-3.1-pro-preview", "gemini-3.1-flash"]
     models_to_try = list(dict.fromkeys(models_to_try))
 
     last_err = None
