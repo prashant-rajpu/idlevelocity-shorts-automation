@@ -214,7 +214,7 @@ class FalWan(_FalBase):
 
 
 class HuggingFaceLTX(VideoProvider):
-    """LTX-Video via HF Inference API."""
+    """LTX-Video via HF Inference Providers (new router endpoint)."""
     name = "hf_ltx"
     default_model = "Lightricks/LTX-Video"
 
@@ -224,7 +224,11 @@ class HuggingFaceLTX(VideoProvider):
     def _generate(self, prompt: str, target_path: Path, duration: float) -> Path:
         model = self.overrides.get("model", self.default_model)
         token = os.environ["HF_TOKEN"]
-        url = f"https://api-inference.huggingface.co/models/{model}"
+        # HF migrated inference off api-inference.huggingface.co to the
+        # Inference Providers router. Video generation on the free tier
+        # is severely rate-limited or gated to paid providers — expect
+        # this to 402/429 without a subscription.
+        url = f"https://router.huggingface.co/hf-inference/models/{model}"
 
         r = requests.post(
             url,
@@ -256,8 +260,12 @@ class HuggingFaceLTX(VideoProvider):
 
 
 class ReplicateLTX(VideoProvider):
-    """LTX-Video via Replicate — very cheap per generation."""
+    """LTX-Video (or configured alt) via Replicate — cheap per generation."""
     name = "replicate_ltx"
+    # Official Replicate model path. Override via
+    # config.provider_overrides.replicate_ltx.model to swap in a different
+    # model (e.g. "bytedance/seedance-1-lite", "fofr/ltx-video") or a
+    # pinned "owner/name:version_hash" if you want deterministic output.
     default_model = "lightricks/ltx-video"
 
     def has_credentials(self) -> bool:
@@ -268,19 +276,29 @@ class ReplicateLTX(VideoProvider):
         token = os.environ["REPLICATE_API_TOKEN"]
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-        r = requests.post(
-            f"https://api.replicate.com/v1/models/{model}/predictions",
-            headers=headers,
-            json={
-                "input": {
-                    "prompt": prompt,
-                    "width": 768,
-                    "height": 1344,
-                    "num_frames": max(int(duration * 24), 24),
-                }
-            },
-            timeout=60,
-        )
+        # If model contains ":", it's owner/name:version — use /v1/predictions
+        # with the version hash. Otherwise use the official-model endpoint.
+        input_body = {
+            "prompt": prompt,
+            "width": 768,
+            "height": 1344,
+            "num_frames": max(int(duration * 24), 24),
+        }
+        if ":" in model:
+            version = model.split(":", 1)[1]
+            r = requests.post(
+                "https://api.replicate.com/v1/predictions",
+                headers=headers,
+                json={"version": version, "input": input_body},
+                timeout=60,
+            )
+        else:
+            r = requests.post(
+                f"https://api.replicate.com/v1/models/{model}/predictions",
+                headers=headers,
+                json={"input": input_body},
+                timeout=60,
+            )
         if r.status_code == 429:
             raise RateLimited(f"replicate 429: {r.text[:200]}")
         if r.status_code in (402, 403):

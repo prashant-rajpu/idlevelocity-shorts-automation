@@ -60,6 +60,8 @@ GitHub repository → **Settings → Secrets and variables → Actions → New r
 
 Each AI-video secret is optional. If a key is missing, that provider is silently skipped and the pipeline falls through to the next one in `config.json → video_providers`. Pexels stock footage is the ultimate fallback so scheduled uploads never fail on a dry provider chain.
 
+**Funding reality check.** As of 2026, the "free tier" marketing on most AI video providers is misleading — accounts are credit-locked from creation until you top up. Concretely: fal.ai returns `403 User is locked. Exhausted balance` on every model until a payment method is added; Pixverse's API rejects with `Insufficient balance` on the free plan; Hugging Face free inference no longer covers video models. **To actually generate AI clips, fund one provider with $5–$10 once.** Recommended combo: fal.ai + $5 credit for hero clips (Kling 2.5 Turbo Pro ≈ $0.07/s → ~14 five-second clips per $5), and Replicate + $10 for bulk (LTX-Video ≈ $0.003/s → ~50+ minutes). Without funding, the pipeline keeps working — it just serves Pexels stock footage as before.
+
 ### 5. Test before automatic publishing
 
 Open **Actions → Generate and publish Idlevelocity Short → Run workflow**. The current configuration publishes immediately, so set `privacy_status` in `config.json` to `unlisted` for the first test if desired. Check the generated Short, captions, sound, title and description.
