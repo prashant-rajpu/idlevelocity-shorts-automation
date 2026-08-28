@@ -49,10 +49,16 @@ GitHub repository → **Settings → Secrets and variables → Actions → New r
 | Secret | Value |
 |---|---|
 | `GEMINI_API_KEY` | Gemini key |
-| `PEXELS_API_KEY` | Pexels key |
+| `PEXELS_API_KEY` | Pexels key (last-resort stock fallback) |
 | `YOUTUBE_CLIENT_ID` | `client_id` from the downloaded JSON |
 | `YOUTUBE_CLIENT_SECRET` | `client_secret` from the downloaded JSON |
 | `YOUTUBE_REFRESH_TOKEN` | Value produced by the helper |
+| `FAL_KEY` | fal.ai API key — grants 5 free MiniMax H3 Max clips/day + $10 signup credit for Kling/Wan |
+| `HF_TOKEN` | Hugging Face token — free LTX-Video inference quota |
+| `REPLICATE_API_TOKEN` | Replicate token — very cheap LTX-Video generation |
+| `PIXVERSE_API_KEY` | Pixverse API key — optional, ~2 free clips/day |
+
+Each AI-video secret is optional. If a key is missing, that provider is silently skipped and the pipeline falls through to the next one in `config.json → video_providers`. Pexels stock footage is the ultimate fallback so scheduled uploads never fail on a dry provider chain.
 
 ### 5. Test before automatic publishing
 

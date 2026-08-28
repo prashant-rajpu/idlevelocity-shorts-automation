@@ -13,5 +13,16 @@
   "privacy_status": "public",
   "category_id": "27",
   "duration_target_seconds": 32,
-  "hashtags": ["#shorts", "#selfimprovement", "#discipline", "#productivity", "#mindset", "#habits", "#success"]
+  "hashtags": ["#shorts", "#selfimprovement", "#discipline", "#productivity", "#mindset", "#habits", "#success"],
+  "video_providers": [
+    "fal_minimax_h3max",
+    "fal_kling25_turbo",
+    "fal_wan",
+    "hf_ltx",
+    "replicate_ltx",
+    "pixverse",
+    "pexels"
+  ],
+  "style_prefix": "Cinematic 3D animated style, Pixar-quality lighting, subtle rim light, shallow depth of field, muted color grade with one saturated accent, smooth camera motion, 24fps, no text or captions on screen, vertical 9:16.",
+  "provider_overrides": {}
 }

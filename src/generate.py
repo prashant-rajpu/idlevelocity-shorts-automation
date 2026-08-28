@@ -2,12 +2,14 @@ import json
 import math
 import os
 import random
-import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
 
 import requests
+
+from video_providers import generate_scene_video
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "output"
@@ -30,7 +32,7 @@ def choose_topic(cfg):
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent?key={key}"
-    
+
     prompt = f'''Suggest 1 NEW, highly viral, trending YouTube Shorts topic for US/Global audience in niche: {cfg['niche']}.
 It must NOT be any of these previously used topics:
 {json.dumps(list(used_topics)[-25:], ensure_ascii=False)}
@@ -76,6 +78,7 @@ Return STRICT JSON ONLY with structure:
     {{
       "text": "1 punchy, fast-spoken English line",
       "visual_query": "3-4 precise English search terms for Pexels portrait footage (e.g. 'alarm clock morning wake up', 'glowing smartphone dark bedroom', 'frustrated person laptop desk', 'putting phone away drawer', 'drinking glass cold water', 'writing journal morning desk', 'confident man sunrise walking')",
+      "cinematic_prompt": "A rich 1-2 sentence description for AI text-to-video (subject, action, camera motion, lighting, color mood). Example: 'A young man in a dim bedroom slams his phone face down on the nightstand at dawn; slow dolly-in, warm rim light through blinds, teal-and-orange grade, shallow depth of field.'",
       "fallback_query": "2 general keywords (e.g. 'phone bed', 'study desk', 'morning walk')"
     }}
   ]
@@ -297,18 +300,19 @@ Dialogue: 1,0:00:00.00,{sec_to_ass_time(hook_end)},HookBadge,,0,0,0,,{hook_badge
     return master_audio, master_ass, scene_durations
 
 
-def build_script_matching_video(scenes, scene_durations):
+def build_script_matching_video(scenes, scene_durations, cfg):
     scene_video_clips = []
-    
+    provider_usage: dict[str, int] = {}
+
     for idx, (scene, duration) in enumerate(zip(scenes, scene_durations)):
         raw_clip = OUT / f"raw_scene_{idx}.mp4"
         synced_clip = OUT / f"synced_scene_{idx}.mp4"
-        
+
         query = scene.get("visual_query", "discipline focus motivation")
-        fallback = scene.get("fallback_query", "")
-        print(f"🎬 Scene {idx+1}/{len(scenes)} [{duration:.2f}s]: Searching '{query}'...")
-        
-        download_single_video(query, raw_clip, fallback)
+        print(f"🎬 Scene {idx+1}/{len(scenes)} [{duration:.2f}s]: '{query}'")
+
+        _, used = generate_scene_video(scene, raw_clip, duration, cfg)
+        provider_usage[used] = provider_usage.get(used, 0) + 1
         
         subprocess.run([
             "ffmpeg", "-y",
@@ -329,6 +333,10 @@ def build_script_matching_video(scenes, scene_durations):
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_video_txt),
         "-c", "copy", str(master_video)
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    if provider_usage:
+        summary = ", ".join(f"{n}×{c}" for n, c in provider_usage.items())
+        print(f"📦 Providers used: {summary}")
 
     return master_video
 
@@ -397,6 +405,7 @@ def render_final_video_openmontage(stock_video, voice_audio, ass_subs, bgm, cfg)
 
 
 def main():
+    shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(exist_ok=True)
     cfg = load_json(ROOT / "config.json")
     topic, history = choose_topic(cfg)
@@ -422,7 +431,7 @@ def main():
     )
     
     # 2. Build precision visual track matching each scene sentence
-    synced_video = build_script_matching_video(scenes, scene_durations)
+    synced_video = build_script_matching_video(scenes, scene_durations, cfg)
     
     # 3. Choose background music & render final video with dynamic sidechain ducking + loudnorm
     bgm = choose_bgm()
