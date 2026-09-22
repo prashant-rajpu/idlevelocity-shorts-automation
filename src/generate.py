@@ -55,6 +55,27 @@ Return JSON ONLY: {{"topic": "The single trending topic name in English"}}
     return random.choice(topics), history
 
 
+def list_generate_content_models(key, timeout=20):
+    # ponytail: hardcoded Gemini model IDs go stale every few months (3rd fix
+    # for this exact bug); ask the API what's live instead of guessing names.
+    try:
+        res = requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={key}",
+            timeout=timeout,
+        )
+        res.raise_for_status()
+        names = [
+            m["name"].split("/")[-1]
+            for m in res.json().get("models", [])
+            if "generateContent" in m.get("supportedGenerationMethods", [])
+        ]
+        names.sort(key=lambda n: (0 if "flash" in n else 1, n))
+        return names
+    except Exception as e:
+        print(f"Notice: could not list Gemini models ({e}); using static fallback list")
+        return ["gemini-flash-latest", "gemini-pro-latest"]
+
+
 def generate_script(topic, cfg):
     prompt = f'''You are a world-class viral YouTube Shorts director creating high-retention, high-CPM content for a US & Global audience on channel {cfg['channel_name']}.
 Niche: {cfg['niche']}.
@@ -87,7 +108,7 @@ Return STRICT JSON ONLY with structure:
 
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    models_to_try = [primary_model, "gemini-3.6-flash", "gemini-3.1-pro-preview", "gemini-3.1-flash"]
+    models_to_try = [primary_model] + list_generate_content_models(key)
     models_to_try = list(dict.fromkeys(models_to_try))
 
     last_err = None
