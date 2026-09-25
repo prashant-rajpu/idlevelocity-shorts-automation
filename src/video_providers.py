@@ -394,15 +394,15 @@ def _get_openflow_token() -> str:
     return os.getenv("OPENFLOW_TOKEN") or os.getenv("OPENFLOW_API_KEY") or os.getenv("PIXVERSE_API_KEY") or ""
 
 
-class OpenFlowVeo(VideoProvider):
-    """Google Flow Veo video generation via OpenFlow MCP."""
-    name = "openflow_veo"
+class OpenFlowOmniFlash(VideoProvider):
+    """Google Flow Omni Flash (Abra) video generation via OpenFlow MCP."""
+    name = "openflow_omniflash"
     poll_seconds: int = 5
     max_poll_attempts: int = 50
     _exhausted_until: float = 0.0
 
     def available(self) -> bool:
-        if time.time() < OpenFlowVeo._exhausted_until:
+        if time.time() < OpenFlowOmniFlash._exhausted_until:
             return False
         return super().available()
 
@@ -455,7 +455,15 @@ class OpenFlowVeo(VideoProvider):
         return result_data
 
     def _generate(self, prompt: str, target_path: Path, duration: float) -> Path:
-        model_key = self.overrides.get("video_model_key", "abra_t2v_4s")
+        model_key = self.overrides.get("video_model_key")
+        if not model_key:
+            if duration <= 4.5:
+                model_key = "abra_t2v_4s"    # Omni Flash 4s (7 credits)
+            elif duration <= 6.5:
+                model_key = "abra_t2v_6s"    # Omni Flash 6s (10 credits)
+            else:
+                model_key = "abra_t2v_8s"    # Omni Flash 8s (12 credits)
+
         args = {
             "prompt": prompt,
             "aspect": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -464,9 +472,9 @@ class OpenFlowVeo(VideoProvider):
         }
         resp = self._call_mcp("generate_video", args)
         if "weekly_limit_reached" in str(resp):
-            OpenFlowVeo._exhausted_until = time.time() + 86400
+            OpenFlowOmniFlash._exhausted_until = time.time() + 86400
             self._mark_exhausted()
-            raise QuotaExhausted("openflow_veo weekly limit reached (3/3 videos used)")
+            raise QuotaExhausted("openflow_omniflash weekly limit reached (3/3 videos used on free bridge tier)")
         if resp.get("status") == "failed" or resp.get("error"):
             raise ProviderError(f"openflow generation failed: {resp.get('error')}")
 
@@ -493,6 +501,9 @@ class OpenFlowVeo(VideoProvider):
                 raise ProviderError(f"openflow job failed: {status_resp.get('error')}")
 
         raise ProviderError(f"openflow job {job_id} timed out after {self.max_poll_attempts * self.poll_seconds}s")
+
+
+OpenFlowVeo = OpenFlowOmniFlash
 
 
 class OpenFlowImage(VideoProvider):
@@ -647,7 +658,8 @@ class PexelsStock(VideoProvider):
 
 
 ALL_PROVIDERS = {
-    "openflow_veo": OpenFlowVeo,
+    "openflow_omniflash": OpenFlowOmniFlash,
+    "openflow_veo": OpenFlowOmniFlash,
     "openflow_image": OpenFlowImage,
     "fal_minimax_h3max": FalMiniMaxH3Max,
     "fal_kling25_turbo": FalKling25Turbo,
@@ -659,6 +671,7 @@ ALL_PROVIDERS = {
 }
 
 DEFAULT_CHAIN = [
+    "openflow_omniflash",
     "openflow_veo",
     "openflow_image",
     "fal_minimax_h3max",
