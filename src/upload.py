@@ -10,16 +10,38 @@ from googleapiclient.http import MediaFileUpload
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _load_local_env():
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip("'\"")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+_load_local_env()
+
+
 def main():
     cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     meta = json.loads((ROOT / "output/metadata.json").read_text(encoding="utf-8"))
+    scopes = [
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
+    ]
     creds = Credentials(
         token=None,
         refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
         token_uri="https://oauth2.googleapis.com/token",
         client_id=os.environ["YOUTUBE_CLIENT_ID"],
         client_secret=os.environ["YOUTUBE_CLIENT_SECRET"],
-        scopes=["https://www.googleapis.com/auth/youtube.upload"],
+        scopes=scopes,
     )
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
     description = meta["description"].strip() + "\n\n" + " ".join(meta.get("hashtags", ["#shorts", "#selfimprovement", "#productivity"]))

@@ -15,6 +15,8 @@
   "duration_target_seconds": 32,
   "hashtags": ["#shorts", "#selfimprovement", "#discipline", "#productivity", "#mindset", "#habits", "#success"],
   "video_providers": [
+    "openflow_veo",
+    "openflow_image",
     "fal_minimax_h3max",
     "fal_kling25_turbo",
     "fal_wan",

@@ -3,3 +3,5 @@ client_secret*.json
 .env*
 __pycache__/
 .venv/
+data/youtube_credentials.json
+data/youtube_tokens.json

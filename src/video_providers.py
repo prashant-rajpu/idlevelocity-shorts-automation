@@ -26,9 +26,27 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 QUOTA_FILE = ROOT / "data" / "provider_quotas.json"
+
+
+def _load_local_env():
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip("'\"")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+_load_local_env()
 
 
 class ProviderError(Exception):
@@ -372,6 +390,220 @@ class Pixverse(VideoProvider):
         raise ProviderError("pixverse timed out")
 
 
+def _get_openflow_token() -> str:
+    return os.getenv("OPENFLOW_TOKEN") or os.getenv("OPENFLOW_API_KEY") or os.getenv("PIXVERSE_API_KEY") or ""
+
+
+class OpenFlowVeo(VideoProvider):
+    """Google Flow Veo video generation via OpenFlow MCP."""
+    name = "openflow_veo"
+    poll_seconds: int = 5
+    max_poll_attempts: int = 50
+    _exhausted_until: float = 0.0
+
+    def available(self) -> bool:
+        if time.time() < OpenFlowVeo._exhausted_until:
+            return False
+        return super().available()
+
+    def has_credentials(self) -> bool:
+        return bool(_get_openflow_token())
+
+    def _call_mcp(self, tool_name: str, arguments: dict) -> dict:
+        token = _get_openflow_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        payload = {
+            "jsonrpc": "2.0",
+            "id": int(time.time() * 1000) % 1000000,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+        res = requests.post("https://openflowmcp.com/mcp", headers=headers, json=payload, timeout=60)
+        if res.status_code == 429:
+            raise RateLimited(f"openflow 429: {res.text[:200]}")
+        if res.status_code in (401, 402, 403):
+            raise QuotaExhausted(f"openflow {res.status_code}: {res.text[:200]}")
+        res.raise_for_status()
+
+        result_data = None
+        for line in res.text.splitlines():
+            if line.startswith("data: "):
+                try:
+                    parsed = json.loads(line[6:])
+                    if "result" in parsed:
+                        result_data = parsed["result"]
+                    elif "error" in parsed:
+                        raise ProviderError(f"openflow error: {parsed['error']}")
+                except Exception as e:
+                    if isinstance(e, ProviderError):
+                        raise
+                    pass
+        if result_data is None:
+            raise ProviderError("openflow: no result in response")
+
+        contents = result_data.get("content", [])
+        for item in contents:
+            if item.get("type") == "text":
+                try:
+                    return json.loads(item.get("text", "{}"))
+                except json.JSONDecodeError:
+                    return {"text": item.get("text")}
+        return result_data
+
+    def _generate(self, prompt: str, target_path: Path, duration: float) -> Path:
+        model_key = self.overrides.get("video_model_key", "abra_t2v_4s")
+        args = {
+            "prompt": prompt,
+            "aspect": "VIDEO_ASPECT_RATIO_PORTRAIT",
+            "video_model_key": model_key,
+            "include_preview": False,
+        }
+        resp = self._call_mcp("generate_video", args)
+        if "weekly_limit_reached" in str(resp):
+            OpenFlowVeo._exhausted_until = time.time() + 86400
+            self._mark_exhausted()
+            raise QuotaExhausted("openflow_veo weekly limit reached (3/3 videos used)")
+        if resp.get("status") == "failed" or resp.get("error"):
+            raise ProviderError(f"openflow generation failed: {resp.get('error')}")
+
+        download_urls = resp.get("download_urls") or (resp.get("result") or {}).get("urls")
+        if download_urls and len(download_urls) > 0 and resp.get("status") == "done":
+            _stream_download(download_urls[0], target_path)
+            return target_path
+
+        job_id = resp.get("job_id")
+        if not job_id:
+            raise ProviderError(f"openflow: no job_id or download_urls in response: {resp}")
+
+        for _ in range(self.max_poll_attempts):
+            time.sleep(self.poll_seconds)
+            status_resp = self._call_mcp("check_job", {"job_id": job_id, "include_preview": False})
+            st = status_resp.get("status")
+            if st == "done":
+                urls = status_resp.get("download_urls") or (status_resp.get("result") or {}).get("urls")
+                if urls:
+                    _stream_download(urls[0], target_path)
+                    return target_path
+                raise ProviderError(f"openflow: job done but no url found: {status_resp}")
+            if st == "failed":
+                raise ProviderError(f"openflow job failed: {status_resp.get('error')}")
+
+        raise ProviderError(f"openflow job {job_id} timed out after {self.max_poll_attempts * self.poll_seconds}s")
+
+
+class OpenFlowImage(VideoProvider):
+    """Google Flow Nano Banana image generation converted to 9:16 vertical motion video."""
+    name = "openflow_image"
+    poll_seconds: int = 4
+    max_poll_attempts: int = 30
+
+    def has_credentials(self) -> bool:
+        return bool(_get_openflow_token())
+
+    def _call_mcp(self, tool_name: str, arguments: dict) -> dict:
+        token = _get_openflow_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        payload = {
+            "jsonrpc": "2.0",
+            "id": int(time.time() * 1000) % 1000000,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+        res = requests.post("https://openflowmcp.com/mcp", headers=headers, json=payload, timeout=60)
+        if res.status_code == 429:
+            raise RateLimited(f"openflow 429: {res.text[:200]}")
+        if res.status_code in (401, 402, 403):
+            raise QuotaExhausted(f"openflow {res.status_code}: {res.text[:200]}")
+        res.raise_for_status()
+
+        result_data = None
+        for line in res.text.splitlines():
+            if line.startswith("data: "):
+                try:
+                    parsed = json.loads(line[6:])
+                    if "result" in parsed:
+                        result_data = parsed["result"]
+                    elif "error" in parsed:
+                        raise ProviderError(f"openflow error: {parsed['error']}")
+                except Exception as e:
+                    if isinstance(e, ProviderError):
+                        raise
+                    pass
+        if result_data is None:
+            raise ProviderError("openflow: no result in response")
+
+        contents = result_data.get("content", [])
+        for item in contents:
+            if item.get("type") == "text":
+                try:
+                    return json.loads(item.get("text", "{}"))
+                except json.JSONDecodeError:
+                    return {"text": item.get("text")}
+        return result_data
+
+    def _generate(self, prompt: str, target_path: Path, duration: float) -> Path:
+        model = self.overrides.get("image_model", "NARWHAL")
+        args = {
+            "prompt": prompt,
+            "aspect": "IMAGE_ASPECT_RATIO_PORTRAIT",
+            "model": model,
+            "include_preview": False,
+        }
+        resp = self._call_mcp("generate_image", args)
+        if "weekly_limit_reached" in str(resp):
+            self._mark_exhausted()
+            raise QuotaExhausted("openflow_image weekly limit reached")
+
+        download_urls = resp.get("download_urls") or (resp.get("result") or {}).get("urls")
+        img_temp = target_path.with_suffix(".jpg")
+        if download_urls and len(download_urls) > 0 and resp.get("status") == "done":
+            _stream_download(download_urls[0], img_temp)
+        else:
+            job_id = resp.get("job_id")
+            if not job_id:
+                raise ProviderError(f"openflow image: no job_id in response: {resp}")
+            for _ in range(self.max_poll_attempts):
+                time.sleep(self.poll_seconds)
+                status_resp = self._call_mcp("check_job", {"job_id": job_id, "include_preview": False})
+                st = status_resp.get("status")
+                if st == "done":
+                    urls = status_resp.get("download_urls") or (status_resp.get("result") or {}).get("urls")
+                    if urls:
+                        _stream_download(urls[0], img_temp)
+                        break
+                    raise ProviderError(f"openflow image: done but no url found: {status_resp}")
+                if st == "failed":
+                    raise ProviderError(f"openflow image job failed: {status_resp.get('error')}")
+
+        if not img_temp.exists():
+            raise ProviderError("openflow image: failed to download image")
+
+        total_frames = max(30, int(duration * 30))
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", str(img_temp),
+            "-c:v", "libx264", "-t", f"{duration:.2f}",
+            "-vf", f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0015,1.15)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            str(target_path)
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            img_temp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return target_path
+
+
 class PexelsStock(VideoProvider):
     """Non-AI real stock footage. Ultimate fallback — never runs out."""
     name = "pexels"
@@ -415,6 +647,8 @@ class PexelsStock(VideoProvider):
 
 
 ALL_PROVIDERS = {
+    "openflow_veo": OpenFlowVeo,
+    "openflow_image": OpenFlowImage,
     "fal_minimax_h3max": FalMiniMaxH3Max,
     "fal_kling25_turbo": FalKling25Turbo,
     "fal_wan": FalWan,
@@ -425,6 +659,8 @@ ALL_PROVIDERS = {
 }
 
 DEFAULT_CHAIN = [
+    "openflow_veo",
+    "openflow_image",
     "fal_minimax_h3max",
     "fal_kling25_turbo",
     "fal_wan",

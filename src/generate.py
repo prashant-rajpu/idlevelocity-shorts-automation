@@ -15,8 +15,104 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "output"
 
 
+def _load_local_env():
+    # Local runs read ROOT/.env (gitignored); real environment wins.
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip("'\"")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+_load_local_env()
+
+
 def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _meta_key():
+    return os.getenv("META_API_KEY") or os.getenv("MODEL_API_KEY")
+
+
+def _extract_json(text):
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        return json.loads(text[start:end + 1])
+    raise ValueError("No JSON object found in model output")
+
+
+def _meta_complete_json(prompt, temperature=0.85, max_tokens=8000):
+    key = _meta_key()
+    base = os.getenv("META_API_BASE", "https://api.meta.ai/v1").rstrip("/")
+    model = os.getenv("META_MODEL", "muse-spark-1.1")
+    url = f"{base}/chat/completions"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_completion_tokens": max_tokens,
+    }
+    last_err = None
+    for attempt in range(3):
+        try:
+            res = requests.post(url, headers=headers, json=body, timeout=180)
+        except requests.RequestException as e:
+            last_err = e
+            time.sleep(2 * (attempt + 1))
+            continue
+        if res.status_code in (429, 503):
+            wait_time = 2 * (attempt + 1)
+            print(f"Meta API busy ({res.status_code}), retrying in {wait_time}s...")
+            time.sleep(wait_time)
+            continue
+        if res.status_code == 400 and "max_completion_tokens" in res.text and "max_completion_tokens" in body:
+            body["max_tokens"] = body.pop("max_completion_tokens")
+            continue
+        if not res.ok:
+            last_err = RuntimeError(f"Meta API error [{res.status_code}]: {res.text[:300]}")
+            break
+        content = ((res.json().get("choices") or [{}])[0].get("message") or {}).get("content")
+        if not content or not content.strip():
+            last_err = RuntimeError("Meta model returned empty content")
+            time.sleep(2 * (attempt + 1))
+            continue
+        return _extract_json(content)
+    raise last_err or RuntimeError("Meta text generation failed")
+
+
+def _complete_json(prompt, temperature=0.7):
+    if _meta_key():
+        return _meta_complete_json(prompt, temperature)
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("No text provider key (META_API_KEY/MODEL_API_KEY or GEMINI_API_KEY)")
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent?key={key}"
+    res = requests.post(
+        url,
+        json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json"}},
+        timeout=30,
+    )
+    res.raise_for_status()
+    return json.loads(res.json()["candidates"][0]["content"]["parts"][0]["text"])
 
 
 def choose_topic(cfg):
@@ -28,11 +124,7 @@ def choose_topic(cfg):
     if available:
         return random.choice(available), history
 
-    print("All static topics used! Generating a fresh trending viral topic for US/Global audience via Gemini...")
-    key = os.environ["GEMINI_API_KEY"]
-    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{primary_model}:generateContent?key={key}"
-
+    print("All static topics used! Generating a fresh trending viral topic for US/Global audience...")
     prompt = f'''Suggest 1 NEW, highly viral, trending YouTube Shorts topic for US/Global audience in niche: {cfg['niche']}.
 It must NOT be any of these previously used topics:
 {json.dumps(list(used_topics)[-25:], ensure_ascii=False)}
@@ -40,15 +132,12 @@ It must NOT be any of these previously used topics:
 Return JSON ONLY: {{"topic": "The single trending topic name in English"}}
 '''
     try:
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"responseMimeType": "application/json"}}, timeout=30)
-        if res.ok:
-            new_topic = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            topic_data = json.loads(new_topic)
-            topic_name = topic_data.get("topic", "").strip()
-            if topic_name and topic_name.lower() not in used_topics:
-                with (ROOT / "data/topics.txt").open("a", encoding="utf-8") as f:
-                    f.write(f"\n{topic_name}")
-                return topic_name, history
+        topic_data = _complete_json(prompt, temperature=0.7)
+        topic_name = topic_data.get("topic", "").strip()
+        if topic_name and topic_name.lower() not in used_topics:
+            with (ROOT / "data/topics.txt").open("a", encoding="utf-8") as f:
+                f.write(f"\n{topic_name}")
+            return topic_name, history
     except Exception as e:
         print(f"Notice: Dynamic topic generation fallback: {e}")
         
@@ -105,6 +194,14 @@ Return STRICT JSON ONLY with structure:
   ]
 }}
 '''
+
+    if _meta_key():
+        print(f"Using Meta text provider (model: {os.getenv('META_MODEL', 'muse-spark-1.1')})")
+        data = _meta_complete_json(prompt, temperature=0.85)
+        if "scenes" not in data or not isinstance(data["scenes"], list) or len(data["scenes"]) < 4:
+            raise ValueError("Script must contain at least 4 rapid scenes")
+        data["narration"] = " ".join([s["text"].strip() for s in data["scenes"] if s.get("text")])
+        return data
 
     key = os.environ["GEMINI_API_KEY"]
     primary_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
@@ -267,9 +364,10 @@ def generate_scene_audio_and_ass(scenes, hook_badge, voice, rate="+18%"):
         scene_audio = OUT / f"scene_{idx}_audio.mp3"
         scene_subs = OUT / f"scene_{idx}_subs.srt"
         
+        edge_bin = shutil.which("edge-tts") or str(ROOT / ".venv/bin/edge-tts")
         subprocess.run(
             [
-                "edge-tts",
+                edge_bin,
                 "--voice", voice,
                 f"--rate={rate}",
                 "--text", scene["text"],
