@@ -67,31 +67,18 @@ async function generateFlowVideo(prompt, outputPath, targetDuration = 5) {
   await editor.fill(fullPrompt);
   await page.waitForTimeout(1000);
 
+  // Record existing batch count before starting generation
+  const initialCount = await page.locator('button[aria-label="Download batch"]').count();
+  console.log(`[GoogleFlowDirect] Existing batch count: ${initialCount}`);
+
   // Click start generation
   const genBtn = page.locator('button[aria-label="Start generation"]').first();
   await genBtn.waitFor({ state: 'visible', timeout: 5000 });
   await genBtn.click();
   console.log('[GoogleFlowDirect] Start generation clicked');
 
-  // Check if confirmation modal or Always Approve appears
-  for (let i = 0; i < 6; i++) {
-    await page.waitForTimeout(2000);
-    const alwaysApprove = page.locator('text=Always approve').first();
-    const approve = page.locator('text=Approve').first();
-    if (await alwaysApprove.isVisible().catch(() => false)) {
-      console.log('[GoogleFlowDirect] Auto-approving generation (Always approve)...');
-      await alwaysApprove.click();
-      break;
-    } else if (await approve.isVisible().catch(() => false)) {
-      console.log('[GoogleFlowDirect] Auto-approving generation (Approve)...');
-      await approve.click();
-      break;
-    }
-  }
-
-  // Poll for the download button (generation in progress)
-  console.log('[GoogleFlowDirect] Waiting for Omni Flash video to render in Google Flow...');
-  const dlBtn = page.locator('button[aria-label="Download batch"]').first();
+  // Poll until a new batch card appears (count increases)
+  console.log(`[GoogleFlowDirect] Waiting for Omni Flash video to render in Google Flow (awaiting new batch > ${initialCount})...`);
   const maxWaitMs = 180000; // 3 minutes max
   const startTime = Date.now();
   let downloaded = false;
@@ -99,13 +86,15 @@ async function generateFlowVideo(prompt, outputPath, targetDuration = 5) {
   const tempZip = path.join(ROOT, 'output', `flow_batch_${Date.now()}.zip`);
 
   while (Date.now() - startTime < maxWaitMs) {
-    await page.waitForTimeout(5000);
-    const isVisible = await dlBtn.isVisible().catch(() => false);
-    if (isVisible) {
-      console.log('[GoogleFlowDirect] Video ready! Initiating download...');
+    await page.waitForTimeout(4000);
+    const currentCount = await page.locator('button[aria-label="Download batch"]').count();
+    if (currentCount > initialCount) {
+      console.log(`[GoogleFlowDirect] New batch rendered (${currentCount} total)! Preparing download...`);
+      await page.waitForTimeout(2000);
+      const dlBtn = page.locator('button[aria-label="Download batch"]').first();
       try {
         const [download] = await Promise.all([
-          page.waitForEvent('download', { timeout: 30000 }),
+          page.waitForEvent('download', { timeout: 45000 }),
           dlBtn.click()
         ]);
         await download.saveAs(tempZip);
