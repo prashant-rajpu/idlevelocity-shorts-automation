@@ -387,7 +387,30 @@ class Pixverse(VideoProvider):
                 return target_path
             if status in (7, 8):
                 raise ProviderError(f"pixverse failed: {resp}")
-        raise ProviderError("pixverse timed out")
+class GoogleFlowDirect(VideoProvider):
+    """Direct Google Flow browser automation using authentic user cookies (0 limits, pure Omni Flash)."""
+    name = "google_flow_direct"
+
+    def has_credentials(self) -> bool:
+        cookies_file = ROOT / "data/flow_cookies.json"
+        return cookies_file.exists() and cookies_file.stat().st_size > 100
+
+    def _generate(self, prompt: str, target_path: Path, duration: float) -> Path:
+        script = ROOT / "src/flow_direct.js"
+        if not script.exists():
+            raise ProviderError("src/flow_direct.js not found")
+        cmd = [
+            "node", str(script),
+            "--prompt", prompt,
+            "--output", str(target_path),
+            "--duration", str(duration)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if res.returncode != 0:
+            raise ProviderError(f"google_flow_direct failed: {res.stderr or res.stdout}")
+        if not target_path.exists() or target_path.stat().st_size < 1000:
+            raise ProviderError("google_flow_direct produced empty or missing file")
+        return target_path
 
 
 def _get_openflow_token() -> str:
@@ -658,6 +681,7 @@ class PexelsStock(VideoProvider):
 
 
 ALL_PROVIDERS = {
+    "google_flow_direct": GoogleFlowDirect,
     "openflow_omniflash": OpenFlowOmniFlash,
     "openflow_veo": OpenFlowOmniFlash,
     "openflow_image": OpenFlowImage,
@@ -671,6 +695,7 @@ ALL_PROVIDERS = {
 }
 
 DEFAULT_CHAIN = [
+    "google_flow_direct",
     "openflow_omniflash",
     "openflow_veo",
     "openflow_image",
